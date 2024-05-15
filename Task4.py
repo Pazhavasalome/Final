@@ -1,44 +1,45 @@
-import pandas as pd
-import ipaddress
-from sklearn.preprocessing import LabelEncoder
+import numpy as np
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
+from tensorflow.keras import layers, models
+from tensorflow.keras.datasets import cifar10
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import os
 
-df = pd.read_csv("Darknet.csv")
+(x_train, y_train), (_, _) = cifar10.load_data()
+x_train = x_train.astype('float32') / 255
 
-df = df.drop(["Flow ID", "Timestamp", "Label2", "Src IP", "Dst IP"], axis=1)
+gun_images_dir = "gun_images"
+gun_images = []
+for filename in os.listdir(gun_images_dir):
+    if filename.endswith(".jpg") or filename.endswith(".png"):
+        img_path = os.path.join(gun_images_dir, filename)
+        img = tf.keras.preprocessing.image.load_img(img_path, target_size=(32, 32))
+        img_array = tf.keras.preprocessing.image.img_to_array(img)
+        gun_images.append(img_array)
+gun_images = np.array(gun_images)
+gun_labels = np.ones((len(gun_images),), dtype=int)
 
-df = df.dropna()
+x_train_combined = np.concatenate([x_train, gun_images])
+y_train_combined = np.concatenate([y_train, gun_labels])
 
-label_encoder1 = LabelEncoder()
-df['Label1'] = label_encoder1.fit_transform(df['Label1'])
+indices = np.arange(len(x_train_combined))
+np.random.shuffle(indices)
+x_train_combined = x_train_combined[indices]
+y_train_combined = y_train_combined[indices]
 
-df.to_csv("processed.csv", index=False)
-
-df = pd.read_csv("processed.csv")
-
-features = df.drop(['Label1'], axis=1)
-label = df['Label1']
-
-X_train, X_test, y_train, y_test = train_test_split(features, label, test_size=0.2, random_state=42)
-
-model = tf.keras.Sequential([
-    tf.keras.layers.Dense(250, activation='relu', input_shape=(features.shape[1],)),
-    tf.keras.layers.Dense(128, activation='relu'),
-    tf.keras.layers.Dense(64, activation='relu'),
-    tf.keras.layers.Dense(4, activation='softmax')
+model = models.Sequential([
+    layers.Conv2D(32, (3, 3), activation='relu', input_shape=(32, 32, 3)),
+    layers.MaxPooling2D((2, 2)),
+    layers.Conv2D(64, (3, 3), activation='relu'),
+    layers.MaxPooling2D((2, 2)),
+    layers.Conv2D(64, (3, 3), activation='relu'),
+    layers.Flatten(),
+    layers.Dense(64, activation='relu'),
+    layers.Dense(1, activation='sigmoid')
 ])
 
 model.compile(optimizer='adam',
-              loss='sparse_categorical_crossentropy',
+              loss='binary_crossentropy',
               metrics=['accuracy'])
 
-model.fit(X_train, y_train, epochs=20, batch_size=753, validation_data=(X_test, y_test))
-
-loss, accuracy = model.evaluate(X_test, y_test)
-print(f'Test Loss: {loss:.4f}')
-print(f'Test Accuracy: {accuracy:.4f}')
-
-with open('accuracy2.txt', 'w') as f:
-    f.write(f'Test Loss: {loss:.4f}\n')
-    f.write(f'Test Accuracy: {accuracy:.4f}\n')
+model.fit(x_train_combined, y_train_combined, epochs=5, batch_size=32)
